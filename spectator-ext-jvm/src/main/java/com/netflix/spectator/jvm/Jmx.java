@@ -20,19 +20,21 @@ import com.netflix.spectator.api.Registry;
 import com.netflix.spectator.api.patterns.PolledMeter;
 import com.typesafe.config.Config;
 
-import java.lang.management.BufferPoolMXBean;
-import java.lang.management.ClassLoadingMXBean;
-import java.lang.management.CompilationMXBean;
-import java.lang.management.ManagementFactory;
-import java.lang.management.MemoryPoolMXBean;
-import java.lang.management.ThreadMXBean;
+import java.lang.management.*;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Helpers for working with JMX mbeans.
  */
 public final class Jmx {
+
+  private static final AtomicLong PREV_GC_CPU_TIME = new AtomicLong(-1L);
+  private static final AtomicLong PREV_PROCESS_CPU_TIME = new AtomicLong(-1L);
+  private static final Method GC_CPU_TIME_METHOD = getGcCpuTimeMethod();
 
   private Jmx() {
   }
@@ -55,12 +57,50 @@ public final class Jmx {
       monitorThreadMXBean(registry);
       monitorCompilationMXBean(registry);
     }
-
+    monitorGcOverhead(registry);
     for (MemoryPoolMXBean mbean : ManagementFactory.getMemoryPoolMXBeans()) {
       registry.register(new MemoryPoolMeter(registry, mbean));
     }
     for (BufferPoolMXBean mbean : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
       registry.register(new BufferPoolMeter(registry, mbean));
+    }
+  }
+
+  private static void monitorGcOverhead(Registry registry) {
+    PolledMeter.using(registry)
+            .withName("jvm.gc.overhead")
+            .monitorStaticMethodValue(Jmx::getGcOverhead);
+  }
+
+  private static Method getGcCpuTimeMethod() {
+    try {
+      // OpenJDK 26 and later - see https://bugs.openjdk.org/browse/JDK-8368529
+      return MemoryMXBean.class.getMethod("getTotalGcCpuTime");
+    } catch (NoSuchMethodException ignore) {
+      return null;
+    }
+  }
+
+  private static double getGcOverhead() {
+    if (GC_CPU_TIME_METHOD == null) {
+      return Double.NaN;
+    }
+    try {
+      com.sun.management.OperatingSystemMXBean os = (com.sun.management.OperatingSystemMXBean)
+              ManagementFactory.getOperatingSystemMXBean();
+      MemoryMXBean memory = ManagementFactory.getMemoryMXBean();
+      long gcCpuTime = (long) GC_CPU_TIME_METHOD.invoke(memory);
+      long processCpuTime = os.getProcessCpuTime();
+      long prevGc = PREV_GC_CPU_TIME.getAndSet(gcCpuTime);
+      long prevProcess = PREV_PROCESS_CPU_TIME.getAndSet(processCpuTime);
+      if (prevGc < 0 || prevProcess < 0) {
+        return Double.NaN;
+      }
+      long deltaProcess = processCpuTime - prevProcess;
+      long deltaGc = gcCpuTime - prevGc;
+      return deltaProcess <= 0 ? Double.NaN : (double) deltaGc / deltaProcess;
+    } catch (InvocationTargetException | IllegalAccessException e) {
+      throw new RuntimeException(e);
     }
   }
 
