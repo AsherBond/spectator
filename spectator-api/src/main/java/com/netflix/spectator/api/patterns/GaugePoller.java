@@ -58,7 +58,6 @@ final class GaugePoller {
   }
 
   /** Schedule collection of gauges for a registry. */
-  @SuppressWarnings("PMD")
   static <T> Future<?> schedule(
       ScheduledExecutorService executor, WeakReference<T> ref, long delay, Consumer<T> poll) {
     final AtomicReference<Future<?>> futureRef = new AtomicReference<>();

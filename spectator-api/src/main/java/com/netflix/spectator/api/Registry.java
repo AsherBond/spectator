@@ -153,7 +153,6 @@ public interface Registry extends Iterable<Meter> {
   /** Iterator for traversing the set of meters in the registry. */
   @Override Iterator<Meter> iterator();
 
-  /////////////////////////////////////////////////////////////////
   // Additional helper methods below
 
   /**

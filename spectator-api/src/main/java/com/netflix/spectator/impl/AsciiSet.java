@@ -62,7 +62,6 @@ public final class AsciiSet implements Serializable {
    * Creates a new string without copying the buffer if possible. The String class has a
    * package private constructor that allows the buffer to be shared.
    */
-  @SuppressWarnings("PMD.AvoidCatchingThrowable")
   private static String newString(char[] buf) {
     if (STRING_CONSTRUCTOR != null) {
       try {

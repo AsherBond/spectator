@@ -357,6 +357,7 @@ public class Scheduler {
   /**
    * Wraps the user supplied task with metadata for subsequent executions.
    */
+  @SuppressWarnings("PMD.OverrideBothEqualsAndHashCodeOnComparable")
   static class DelayedTask implements ScheduledFuture<Void> {
     private final Clock clock;
     private final Options options;
@@ -428,7 +429,6 @@ public class Scheduler {
      *     Handle to stats that should be updated based on the execution of the
      *     task.
      */
-    @SuppressWarnings("PMD.AvoidCatchingThrowable")
     void runAndReschedule(DelayQueue<DelayedTask> queue, Stats stats) {
       thread = Thread.currentThread();
       boolean scheduleAgain = options.schedulingPolicy != Policy.RUN_ONCE;
