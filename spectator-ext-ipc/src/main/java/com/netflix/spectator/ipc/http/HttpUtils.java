@@ -101,7 +101,6 @@ final class HttpUtils {
   }
 
   /** Decompress a GZIP compressed byte array. */
-  @SuppressWarnings("PMD.AssignmentInOperand")
   static byte[] gunzip(byte[] data) throws IOException {
     ByteArrayOutputStream baos = new ByteArrayOutputStream(data.length * 10);
     try (InputStream in = new GZIPInputStream(new ByteArrayInputStream(data))) {

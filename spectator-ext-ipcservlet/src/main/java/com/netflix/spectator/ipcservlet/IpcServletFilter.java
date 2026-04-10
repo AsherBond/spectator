@@ -66,7 +66,6 @@ public class IpcServletFilter implements Filter {
     this.netflixHeaders = NetflixHeaders.extractFromEnvironment();
   }
 
-  @SuppressWarnings("PMD.AvoidCatchingThrowable")
   @Override
   public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
       throws IOException, ServletException {

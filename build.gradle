@@ -2,7 +2,7 @@
 plugins {
   id 'com.github.ben-manes.versions' version '0.53.0'
   id 'com.github.spotbugs' version '6.4.8' apply false
-  id 'com.gradleup.shadow' version '9.3.2' apply false
+  id 'com.gradleup.shadow' version '9.4.1' apply false
   id 'me.champeau.jmh' version '0.7.3'
   id 'com.netflix.nebula.dependency-recommender' version '14.0.0'
   id 'com.netflix.nebula.netflixoss' version '13.0.0'
@@ -102,7 +102,7 @@ subprojects {
   }
 
   checkstyle {
-    toolVersion = '13.3.0'
+    toolVersion = '13.4.0'
     ignoreFailures = false 
     configFile = rootProject.file('codequality/checkstyle.xml')
     configDirectory = rootProject.file("codequality")
@@ -133,7 +133,7 @@ subprojects {
   }
 
   pmd {
-    toolVersion = '7.16.0'
+    toolVersion = '7.23.0'
     ignoreFailures = false
     sourceSets = [sourceSets.main]
     ruleSets = []

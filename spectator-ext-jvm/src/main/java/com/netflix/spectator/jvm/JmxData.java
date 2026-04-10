@@ -53,7 +53,6 @@ class JmxData {
   }
 
   /** Convert object to string and checking if it fails. */
-  @SuppressWarnings("PMD.AvoidCatchingThrowable")
   static String mkString(Object obj) {
     if (obj == null) {
       return "null";

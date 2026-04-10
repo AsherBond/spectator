@@ -51,7 +51,6 @@ public final class SparkSink implements Sink {
    * Create a new instance. Spark looks for a constructor with all three parameters, so the
    * {@code SecurityManager} needs to be in the signature even though it isn't used.
    */
-  @SuppressWarnings("PMD.UnusedFormalParameter")
   public SparkSink(
       Properties properties,
       MetricRegistry registry,

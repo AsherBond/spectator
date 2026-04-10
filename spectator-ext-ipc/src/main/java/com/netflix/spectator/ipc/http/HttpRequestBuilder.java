@@ -394,7 +394,6 @@ public class HttpRequestBuilder {
     }
   }
 
-  @SuppressWarnings("PMD.AssignmentInOperand")
   private byte[] readAll(InputStream in, int contentLength) throws IOException {
     if (in == null) {
       // For error status codes with a content-length of 0 we see this case
