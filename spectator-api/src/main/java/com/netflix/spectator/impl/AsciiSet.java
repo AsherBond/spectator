@@ -16,7 +16,6 @@
 package com.netflix.spectator.impl;
 
 import java.io.Serializable;
-import java.util.Arrays;
 import java.util.Optional;
 
 /**
@@ -30,7 +29,16 @@ import java.util.Optional;
  */
 public final class AsciiSet implements Serializable {
 
-  private static final long serialVersionUID = 1L;
+  private static final long serialVersionUID = 2L;
+
+  /** Golden ratio. A small odd multiplier like 31 leaves a raw bit mask's structure intact. */
+  private static final long HASH_MIXER = 0x9E3779B97F4A7C15L;
+
+  private static void checkAscii(char c) {
+    if (c >= 128) {
+      throw new IllegalArgumentException("invalid pattern, '" + c + "' is not ascii");
+    }
+  }
 
   /**
    * Create a set containing ascii characters using a simple pattern. The pattern is similar
@@ -45,73 +53,90 @@ public final class AsciiSet implements Serializable {
    *     Set containing the characters specified in {@code pattern}.
    */
   public static AsciiSet fromPattern(String pattern) {
-    final boolean[] members = new boolean[128];
+    long b0 = 0L;
+    long b1 = 0L;
     final int n = pattern.length();
     for (int i = 0; i < n; ++i) {
       final char c = pattern.charAt(i);
-      if (c >= members.length) {
-        throw new IllegalArgumentException("invalid pattern, '" + c + "' is not ascii");
-      }
 
       final boolean isStartOrEnd = i == 0 || i == n - 1;
       if (isStartOrEnd || c != '-') {
-        members[c] = true;
+        checkAscii(c);
+        if (c < 64) {
+          b0 |= 1L << c;
+        } else {
+          b1 |= 1L << c;
+        }
       } else {
         final char s = pattern.charAt(i - 1);
         final char e = pattern.charAt(i + 1);
         for (char v = s; v <= e; ++v) {
-          members[v] = true;
+          checkAscii(v);
+          if (v < 64) {
+            b0 |= 1L << v;
+          } else {
+            b1 |= 1L << v;
+          }
         }
       }
     }
-    return new AsciiSet(members);
+    return new AsciiSet(b0, b1);
   }
 
   /** Returns a set that matches no characters. */
   public static AsciiSet none() {
-    final boolean[] members = new boolean[128];
-    return new AsciiSet(members);
+    return new AsciiSet(0L, 0L);
   }
 
   /** Returns a set that matches all ascii characters. */
   public static AsciiSet all() {
-    final boolean[] members = new boolean[128];
-    Arrays.fill(members, true);
-    return new AsciiSet(members);
+    // -1L has every bit set, so both words match every character.
+    return new AsciiSet(-1L, -1L);
   }
 
   /** Returns a set that matches ascii control characters. */
   public static AsciiSet control() {
-    final boolean[] members = new boolean[128];
-    for (char c = 0; c < members.length; ++c) {
-      members[c] = Character.isISOControl(c);
+    long b0 = 0L;
+    long b1 = 0L;
+    for (char c = 0; c < 128; ++c) {
+      if (Character.isISOControl(c)) {
+        if (c < 64) {
+          b0 |= 1L << c;
+        } else {
+          b1 |= 1L << c;
+        }
+      }
     }
-    return new AsciiSet(members);
+    return new AsciiSet(b0, b1);
   }
 
-  /**
-   * Converts the members array to a pattern string. Used to provide a user friendly toString
-   * implementation for the set.
-   */
-  private static String toPattern(boolean[] members) {
+  private static boolean memberBit(long b0, long b1, char c) {
+    final long word = (c < 64) ? b0 : b1;
+    // Relies on JLS 15.19: a long shift masks its distance to the low 6 bits, so `c` correctly
+    // selects the bit within whichever word was chosen even though c can be up to 127. Masking
+    // explicitly (`c & 0x3F`) is slower, since x86's shrx already masks the count in hardware.
+    return c < 128 && ((word >>> c) & 1L) != 0L;
+  }
+
+  private String toPattern() {
     StringBuilder buf = new StringBuilder();
-    if (members['-']) {
+    if (contains('-')) {
       buf.append('-');
     }
     boolean previous = false;
     char s = 0;
-    for (int i = 0; i < members.length; ++i) {
-      if (members[i] && !previous) {
+    for (int i = 0; i < 128; ++i) {
+      final boolean member = contains((char) i);
+      if (member && !previous) {
         s = (char) i;
-      } else if (!members[i] && previous) {
+      } else if (!member && previous) {
         final char e = (char) (i - 1);
         append(buf, s, e);
       }
-      previous = members[i];
+      previous = member;
     }
     if (previous) {
-      final char e = (char) (members.length - 1);
-      append(buf, s, e);
+      append(buf, s, (char) 127);
     }
     return buf.toString();
   }
@@ -124,12 +149,15 @@ public final class AsciiSet implements Serializable {
     }
   }
 
-  private final String pattern;
-  private final boolean[] members;
+  /** Membership bits for characters 0-63. */
+  private final long bits0;
 
-  private AsciiSet(boolean[] members) {
-    this.members = Preconditions.checkNotNull(members, "members array cannot be null");
-    this.pattern = toPattern(members);
+  /** Membership bits for characters 64-127. */
+  private final long bits1;
+
+  private AsciiSet(long bits0, long bits1) {
+    this.bits0 = bits0;
+    this.bits1 = bits1;
   }
 
   /**
@@ -137,7 +165,7 @@ public final class AsciiSet implements Serializable {
    * operation.
    */
   public boolean contains(char c) {
-    return c < 128 && members[c];
+    return memberBit(bits0, bits1, c);
   }
 
   /**
@@ -146,7 +174,7 @@ public final class AsciiSet implements Serializable {
   public boolean containsAll(CharSequence str) {
     final int n = str.length();
     for (int i = 0; i < n; ++i) {
-      if (!contains(str.charAt(i))) {
+      if (!memberBit(bits0, bits1, str.charAt(i))) {
         return false;
       }
     }
@@ -156,7 +184,7 @@ public final class AsciiSet implements Serializable {
   private int indexOfNonMember(CharSequence str) {
     final int n = str.length();
     for (int i = 0; i < n; ++i) {
-      if (!contains(str.charAt(i))) {
+      if (!memberBit(bits0, bits1, str.charAt(i))) {
         return i;
       }
     }
@@ -168,7 +196,7 @@ public final class AsciiSet implements Serializable {
    */
   public String replaceNonMembers(String input, char replacement) {
     if (!contains(replacement)) {
-      throw new IllegalArgumentException(replacement + " is not a member of " + pattern);
+      throw new IllegalArgumentException(replacement + " is not a member of " + toString());
     }
     int i = indexOfNonMember(input);
     return i < input.length() ? replaceNonMembersImpl(input, i, replacement) : input;
@@ -179,11 +207,7 @@ public final class AsciiSet implements Serializable {
    * set that is provided.
    */
   public AsciiSet union(AsciiSet set) {
-    final boolean[] unionMembers = new boolean[128];
-    for (int i = 0; i < unionMembers.length; ++i) {
-      unionMembers[i] = members[i] || set.members[i];
-    }
-    return new AsciiSet(unionMembers);
+    return new AsciiSet(bits0 | set.bits0, bits1 | set.bits1);
   }
 
   /**
@@ -191,11 +215,7 @@ public final class AsciiSet implements Serializable {
    * set that is provided.
    */
   public AsciiSet intersection(AsciiSet set) {
-    final boolean[] intersectionMembers = new boolean[128];
-    for (int i = 0; i < intersectionMembers.length; ++i) {
-      intersectionMembers[i] = members[i] && set.members[i];
-    }
-    return new AsciiSet(intersectionMembers);
+    return new AsciiSet(bits0 & set.bits0, bits1 & set.bits1);
   }
 
   /**
@@ -203,32 +223,24 @@ public final class AsciiSet implements Serializable {
    * set that is provided.
    */
   public AsciiSet diff(AsciiSet set) {
-    final boolean[] diffMembers = new boolean[128];
-    for (int i = 0; i < diffMembers.length; ++i) {
-      diffMembers[i] = members[i] && !set.members[i];
-    }
-    return new AsciiSet(diffMembers);
+    return new AsciiSet(bits0 & ~set.bits0, bits1 & ~set.bits1);
   }
 
   /**
    * Returns a new set that will match characters that are not included this set.
    */
   public AsciiSet invert() {
-    final boolean[] invertMembers = new boolean[128];
-    for (int i = 0; i < invertMembers.length; ++i) {
-      invertMembers[i] = !members[i];
-    }
-    return new AsciiSet(invertMembers);
+    // Every bit maps to a real ascii character, so there are no padding bits to mask off.
+    return new AsciiSet(~bits0, ~bits1);
   }
 
   private String replaceNonMembersImpl(String input, int start, char replacement) {
-    final int n = input.length();
     final char[] buf = input.toCharArray();
     buf[start] = replacement;
-    for (int i = start + 1; i < n; ++i) {
-      final char c = input.charAt(i);
-      if (!contains(c))
+    for (int i = start + 1; i < buf.length; ++i) {
+      if (!memberBit(bits0, bits1, input.charAt(i))) {
         buf[i] = replacement;
+      }
     }
     return new String(buf);
   }
@@ -238,39 +250,38 @@ public final class AsciiSet implements Serializable {
    * Otherwise return an empty optional.
    */
   public Optional<Character> character() {
-    char c = 0;
-    int count = 0;
-    for (int i = 0; i < members.length; ++i) {
-      if (members[i]) {
-        c = (char) i;
-        ++count;
-      }
+    if (bits1 == 0L && Long.bitCount(bits0) == 1) {
+      return Optional.of((char) Long.numberOfTrailingZeros(bits0));
     }
-    return (count == 1) ? Optional.of(c) : Optional.empty();
+    if (bits0 == 0L && Long.bitCount(bits1) == 1) {
+      return Optional.of((char) (64 + Long.numberOfTrailingZeros(bits1)));
+    }
+    return Optional.empty();
   }
 
   /** Returns true if this set is isEmpty. */
   public boolean isEmpty() {
-    for (boolean b : members) {
-      if (b) {
-        return false;
-      }
-    }
-    return true;
+    return (bits0 | bits1) == 0L;
   }
 
   @Override public String toString() {
-    return pattern;
+    return toPattern();
   }
 
   @Override public int hashCode() {
-    return pattern.hashCode() + 31 * Arrays.hashCode(members);
+    // Folding the words straight through Long.hashCode would hash every set like its
+    // complement, since ~hi ^ ~lo == hi ^ lo. The xor-shift between them is load bearing too:
+    // 2^63 is a fixed point of odd multiplication, so char 63 would hash like char 127.
+    long h = bits0 * HASH_MIXER;
+    h ^= h >>> 32;
+    h = (h + bits1) * HASH_MIXER;
+    return (int) (h ^ (h >>> 32));
   }
 
   @Override public boolean equals(Object obj) {
     if (this == obj) return true;
-    if (obj == null || !(obj instanceof AsciiSet)) return false;
+    if (!(obj instanceof AsciiSet)) return false;
     AsciiSet other = (AsciiSet) obj;
-    return pattern.equals(other.pattern) && Arrays.equals(members, other.members);
+    return bits0 == other.bits0 && bits1 == other.bits1;
   }
 }
